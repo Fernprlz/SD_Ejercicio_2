@@ -11,3 +11,5 @@
 - [ ] El get devuelve las cosas en la direccion de memoria de los punteros.
 - [ ] Cambiar la estructura de la request para guardar punteros en lugar de valores, porque para el get necesitamos mandar direcciones de memoria.
 - [ ] La funcion exists es redundante.
+
+- [ ] Añadir comprobación para casos big endian y little endian.

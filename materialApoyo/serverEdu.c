@@ -1,4 +1,3 @@
-#include <mqueue.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
@@ -24,9 +23,6 @@
 // Variables de control de capacidad del servidor
 #define MAX_THREADS 	10
 #define MAX_PETICIONES 	256
-
-// Cola del servidor
-mqd_t server_q;
 
 // Lista enlzada para guardar tuplas
 Linked_list list;
@@ -156,15 +152,30 @@ int num_items(){
 ////////////////////////////////////////////////////////////////////////////////
 
 void servicio(void ){
+
+
+  ////////////////////////////
+  void tratar_peticion(void * s) {
+    int s_local;
+    pthread_mutex_lock(&m);
+    s_local = (* (int *)s);
+    busy = FALSE;
+    pthread_cond_signal(&c);
+    pthread_mutex_unlock(&m);
+    /* tratar la petición utilizando el descriptor s_local */
+    pthread_exit(NULL);
+  }
+  ///////////////////////////
+
+
   // request  local
   request req;
-  // Cola del cliente
-  mqd_t client_q;
+  
   // Resultado del servicio
   int res;
 
 	while(true){
-
+    //////////////// Sección Crítica //////////////
 		pthread_mutex_lock(&mutex);
 
     // Esperar a recibir peticiones
@@ -185,11 +196,11 @@ void servicio(void ){
 		n_elementos--;
     // Señales pertinentes a los threads
 		pthread_cond_signal(&no_lleno);
+
 		pthread_mutex_unlock(&mutex);
+    //////////////////////////////////////////////
 
 		// Procesado de la request
-
-		/* ejecutar la petición del cliente y preparar respuesta */
     switch(req -> op){
       case INIT:
         res = init();
@@ -219,27 +230,8 @@ void servicio(void ){
     }
 
 
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-		// Respuesta a la cola del cliente
-		client_q = mq_open(req -> q_name, O_WRONLY);
-		if (client_q == -1)
-			perror("No se puede abrir la cola del cliente");
-		else {
-			mq_send(client_q, (const char *) &res, sizeof(int), 0);
-			mq_close(client_q);
-		}
+		// TODO: Respuesta al socket del cliente 
+		
 	}
  	pthread_exit(0);
 }
@@ -248,12 +240,8 @@ void servicio(void ){
 ///////////////////// E J E C U C I O N - S E R V I D O R //////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-int main(void) {
-    // Cola de mensajes
-	mqd_t server_q;
-  struct mq_attr attr;
-  attr.mq_maxmsg = 10;
-	attr.mq_msgsize = sizeof(request);
+int main(int argc, char **argv) {
+  int server_port = argv[1];
 
   // Lista enlazada para tuplas
   int err = init_list(&list);
@@ -262,6 +250,11 @@ int main(void) {
     return -1;
   }
 
+  // Informacion para la conexión
+  int server_socket, client_socket;
+  socklen_t socket_size;
+  struct sockaddr_in server_addr, client_addr;
+  
   // request  actual
   request req;
 
@@ -271,14 +264,8 @@ int main(void) {
 	int error;
 	int pos = 0;
 
-  // Inicialización de la cola del server
-  server_q = mq_open("/server_q", O_CREAT|O_RDONLY, 0700, &attr);
-	if (server_q == -1) {
-		perror("Fallo al crear la cola del servidor");
-		return -1;
-	}
 
-  // Inicialización de MUTEX de la cola y la pool
+  // Inicialización de MUTEX de la cola y la pool TODO: Eliminar mutex de la cola
 	pthread_mutex_init(&mutex, NULL);
 	pthread_cond_init(&no_lleno, NULL);
 	pthread_cond_init(&no_vacio, NULL);
@@ -289,34 +276,60 @@ int main(void) {
 	for (int ii = 0; ii < MAX_THREADS; ii++){
 		if (pthread_create(&thid[ii], NULL, (void *) servicio, NULL) !=0){
 			perror("Error creando la pool de threads\n");
-			return 0;
+			return -1;
 		}
   }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	struct sockaddr_in server_addr, client_addr;
-	socklen_t size;
-	int sd, sc;
-	int val;
-	char op; int32_t a, b, res;
-	if ((sd = socket(AF_INET, SOCK_STREAM, 0))<0){
-		printf ("SERVER: Error en el socket");
-		return (0);
+	// Creación del socket
+	if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1){
+		printf ("SERVER: Error creando el socket");
+		return -1;
 	}
-	val = 1;
-	setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *) &val, sizeof(int));
-	bzero((char *)&server_addr, sizeof(server_addr));
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_addr.s_addr = INADDR_ANY;
-	server_addr.sin_port = htons(4200);
-	bind(sd, (const struct sockaddr *)&server_addr,
-	sizeof(server_addr));
-	listen(sd, SOMAXCONN);
-	size = sizeof(client_addr);
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // Estableciendo valores para las direcciones del socket
+  bzero ((char *) &server_addr, sizeof(server_addr));
+  server_addr.sin_family = AF_INET;             // Dominio del socket. 
+  server_addr.sin_port = htons(server_port);    // Puerto designado por comando
+  server_addr. sin_addr.s_addr = INADDR_ANY;    // Dirección asignada automaticamente
+
+  // Enlazado de direcciones al socket
+  if (bind(server_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1){
+    printf("SERVER: Error en el bind")
+    return -1;
+  }
+  
+  // Esperar conexión
+  listen(server_socket, SOMAXCONN);
+
+  // Bucle de recepción de conexiones
+  while(True){
+    
+    client_socket = accept(server_socket, (struct sockaddr *) &client_addr, &socket_size);
+    
+    if (client_socket == -1){
+      printf("SERVER: Error aceptando conexión")
+      return -1;
+    }
+
+    // Delegación del procesado a un thread.
+    // TODO: Dirigir al thid adecuado de la pool de threads.
+    pthread_create(&thid, &attr, servicio, (void *) &client_socket);
+    pthread_mutex_lock(&m);
+    while(no_lleno == false){// cambiar las variables a las correctas
+      pthread_cond_wait(&m, &c);
+    } 
+    no_lleno = true;
+    pthread_mutex_unlock(&m);
 
 
+
+  }
+
+
+
+
+	// setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *) &val, sizeof(int)); mirar como se usa
 
 
   // Bucle de ejecución del servidor
@@ -335,11 +348,11 @@ int main(void) {
     }
 		read ( sc, (char *) &req, sizeof(char));
 		
-		buffer_peticiones[pos] = req; // Recibe la request  en el buffer de peticiones
+		buffer_peticiones[pos] = req;     // Recibe la request  en el buffer de peticiones
 		pos = (pos + 1) % MAX_PETICIONES; // Mueve el puntero de posición del buffer de peticiones al siguiente hueco libre
 		n_elementos++;
-		pthread_cond_signal(&no_vacio); // Avisa al resto de threads parados por el cond_wait
-		pthread_mutex_unlock(&mutex); // Libera el mutex global
+		pthread_cond_signal(&no_vacio);   // Avisa al resto de threads parados por el cond_wait
+		pthread_mutex_unlock(&mutex);     // Libera el mutex global
 	}
 
   // Ejecución del servidor terminada
