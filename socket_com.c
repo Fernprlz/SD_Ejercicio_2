@@ -6,13 +6,14 @@ int enviar(int socket, char * buffer, int len){
 	int recibido;
 	int enviado = len;
 
+	// 
 	do {	
 		recibido = write(socket, buffer, len);
 		enviado = enviado - recibido;
 		buffer = buffer + recibido;
 	} while ((enviado > 0) && (recibido >= 0));
 
-	if (r < 0){
+	if (recibido < 0){
 		printf("Error enviando los datos.")
 		return (-1);
 	} else {
@@ -49,6 +50,7 @@ ssize_t leer_linea(int fd, void *buffer, size_t n){
 
 	if (n <= 0 || buffer == NULL) { 
 		errno = EINVAL;
+		printf("ERROR: Fallo en la lectura.\n");
 		return -1; 
 	}
 
@@ -63,6 +65,7 @@ ssize_t leer_linea(int fd, void *buffer, size_t n){
 				/* interrupted -> restart read() */
 				continue;
 			} else{
+				printf("ERROR: Fallo en la lectura.\n");
 				return -1;		/* some other error */
 			} 
 		} else if (leido == 0) {	/* EOF */
