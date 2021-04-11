@@ -22,8 +22,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // Variables de control de capacidad del servidor
-#define MAX_THREADS 	10
-#define MAX_PETICIONES 	256
+#define MAX_THREADS   10
+#define MAX_PETICIONES  256
 
 // Lista enlzada para guardar tuplas
 Linked_list list;
@@ -41,6 +41,7 @@ pthread_cond_t no_vacio;
 // MUTEX de control de estado de los threads
 pthread_mutex_t mfin;
 int fin = false;
+int ocupado  = false;
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// S E R V I C I O S ///////////////////////////////
@@ -66,7 +67,7 @@ int set_value(char *key , char *v1, int *v2, float *v3){
   int result;
 
   if (exists(key) == 0){ 
-    printf("Error: la clave ya existe.");
+    printf("Error: la clave ya existe.\n");
     return -1;
   }
 
@@ -83,7 +84,7 @@ int get_value(char *key , char *v1, int *v2, float *v3){
   int result;
 
   if (exists(key) == -1){
-    printf("Error: la clave no existe.");
+    printf("Error: la clave no existe.\n");
     return -1;
   }
 
@@ -91,7 +92,7 @@ int get_value(char *key , char *v1, int *v2, float *v3){
   // contienen para guardar el resultado de la funcion
   result = get(&list, key, v1, v2, v3);
   if (result == -1){
-    printf("Error: clave no encontrada.");
+    printf("Error: clave no encontrada.\n");
      // esta parte no llega a ejecutarse porque si no se encuentra se sale en la comprobacion de arriba
      // lo cual hace el código algo redundante.
     return -1;
@@ -107,7 +108,7 @@ int modify_value(char *key , char *v1, int *v2, float *v3){
   int result;
 
   if (exists(key) == -1){ // TODO Estoy pasando las variables adecuadamente?
-    printf("Error: la clave no existe.");
+    printf("Error: la clave no existe.\n");
     return -1;
   }
 
@@ -128,7 +129,7 @@ int delete_key(char *key){
   int result;
 
   if (exists(key) == -1){ 
-    printf("Error: la clave no existe.");
+    printf("Error: la clave no existe.\n");
     return -1;
   }
 
@@ -152,56 +153,67 @@ int num_items(){
 //////////////// F U N C I O N - P A R A - T H R E A D S ///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-void servicio(void ){
+void servicio(int *socket_global){
 
-
-  ////////////////////////////
-  void tratar_peticion(void * s) {
-    int s_local;
-    pthread_mutex_lock(&m);
-    s_local = (* (int *)s);
-    busy = FALSE;
-    pthread_cond_signal(&c);
-    pthread_mutex_unlock(&m);
-    /* tratar la petición utilizando el descriptor s_local */
-    pthread_exit(NULL);
-  }
-  ///////////////////////////
-
-
+  int socket_local;
   // request  local
   request req;
-  
   // Resultado del servicio
   int res;
 
-	while(true){
+  while(true){ // TODO: ?
+
     //////////////// Sección Crítica //////////////
-		pthread_mutex_lock(&mutex);
+
+    // Copiando la direccion del socket 
+    pthread_mutex_lock(&mutex);
+
+    socket_local = (* (int *) socket_global);
+    ocupado = false;
+    pthread_cond_signal(&c);
+    pthread_mutex_unlock(%m);
+    
+    /////////// Fin de la Sección Crítica //////////
+
+
+    // Esperar a que se desocupe un lugar en el buffer
+    pthread_mutex_lock(&mutex);
+    while (n_elementos == MAX_PETICIONES){
+      pthread_cond_wait(&no_lleno, &mutex);
+    }
+    read (client_socket, (char *) &req, sizeof(char)); // TODO: De que socket leo?
+    
+    buffer_peticiones[pos] = req;     // Recibe la request  en el buffer de peticiones
+    pos = (pos + 1) % MAX_PETICIONES; // Mueve el puntero de posición del buffer de peticiones al siguiente hueco libre
+    n_elementos++;
+    pthread_cond_signal(&no_vacio);   // Avisa al resto de threads parados por el cond_wait
+    pthread_mutex_unlock(&mutex);     // Libera el mutex global
+  //fin
+////////////////
 
     // Esperar a recibir peticiones
-		while (n_elementos == 0) {
+    while (n_elementos == 0) {
       // Evaluar estado de ejecución del servidor
       if (fin == true) {
-				fprintf(stderr,"Finalizando servicio\n");
-				pthread_mutex_unlock(&mutex);
-				pthread_exit(0);
-			}
-			pthread_cond_wait(&no_vacio, &mutex);
-		}
+        fprintf(stderr,"Finalizando servicio\n");
+        pthread_mutex_unlock(&mutex);
+        pthread_exit(0);
+      }
+      pthread_cond_wait(&no_vacio, &mutex);
+    }
 
     // Recoger la petición del buffer
-		req = buffer_peticiones[pos];
+    req = buffer_peticiones[pos];
     // Cambia el puntero de buffer
-		pos = (pos + 1) % MAX_PETICIONES;
-		n_elementos--;
+    pos = (pos + 1) % MAX_PETICIONES;
+    n_elementos--;
     // Señales pertinentes a los threads
-		pthread_cond_signal(&no_lleno);
-
-		pthread_mutex_unlock(&mutex);
-    //////////////////////////////////////////////
-
-		// Procesado de la request
+    pthread_cond_signal(&no_lleno);
+    pthread_mutex_unlock(&mutex);
+  
+    /////////// Fin de la Sección Crítica //////////
+  
+    // Procesado de la request
     switch(req -> op){
       case INIT:
         res = init();
@@ -226,15 +238,11 @@ void servicio(void ){
         break;
       default:
         res = -1;
-        perror("Código de operación invalido");
+        perror("Código de operación invalido\n.");
         break;
     }
-
-
-		// TODO: Respuesta al socket del cliente 
-		
-	}
- 	pthread_exit(0);
+  }
+  pthread_exit(0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -247,7 +255,7 @@ int main(int argc, char **argv) {
   // Lista enlazada para tuplas
   int err = init_list(&list);
   if (err == -1){
-    printf("Error creando la lista de tupals.");
+    printf("Error creando la lista de tupals.\n");
     return -1;
   }
 
@@ -259,49 +267,47 @@ int main(int argc, char **argv) {
   // request  actual
   request req;
 
-	// Threads
-	pthread_attr_t t_attr;
-	pthread_t thid[MAX_THREADS];
-	int error;
-	int pos = 0;
+  // Threads
+  pthread_attr_t t_attr;
+  pthread_t thid[MAX_THREADS];
+  int error;
+  int pos = 0;
 
 
-  // Inicialización de MUTEX de la cola y la pool TODO: Eliminar mutex de la cola
-	pthread_mutex_init(&mutex, NULL);
-	pthread_cond_init(&no_lleno, NULL);
-	pthread_cond_init(&no_vacio, NULL);
-	pthread_mutex_init(&mfin, NULL);
+  // Inicialización de MUTEX de la cola y la pool 
+  pthread_mutex_init(&mutex, NULL);
+  pthread_mutex_init(&mfin, NULL);
+  pthread_cond_init(&no_lleno, NULL);
+  pthread_cond_init(&no_vacio, NULL);
+  pthread_attr_init(&t_attr);
+  // No nos importa su valor de retorno, luego los creamos Detached
+  pthread_attr_setdetachedstate(&t_attr, PTHREAD_CREATE_DETACHED)
 
-  // Creación de la pool de threads
-	pthread_attr_init(&t_attr);
-	for (int ii = 0; ii < MAX_THREADS; ii++){
-		if (pthread_create(&thid[ii], NULL, (void *) servicio, NULL) !=0){
-			perror("Error creando la pool de threads\n");
-			return -1;
-		}
+  
+  // Creación del socket
+  if ((server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1){
+    printf ("SERVER: Error creando el socket\n");
+    return -1;
   }
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Creación del socket
-	if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1){
-		printf ("SERVER: Error creando el socket");
-		return -1;
-	}
 
   // Estableciendo valores para las direcciones del socket
   bzero ((char *) &server_addr, sizeof(server_addr));
   server_addr.sin_family = AF_INET;             // Dominio del socket. 
   server_addr.sin_port = htons(server_port);    // Puerto designado por comando
   server_addr. sin_addr.s_addr = INADDR_ANY;    // Dirección asignada automaticamente
+  setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, (char *) &val, sizeof(int)); 
 
   // Enlazado de direcciones al socket
   if (bind(server_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1){
-    printf("SERVER: Error en el bind")
+    printf("SERVER: Error en el bind\n")
     return -1;
   }
-  
+
   // Esperar conexión
-  listen(server_socket, SOMAXCONN);
+  if (listen(server_socket, SOMAXCONN) == -1){
+    printf("SERVER: Error en el listen.\n");
+    return -1;
+  }
 
   // Bucle de recepción de conexiones
   while(True){
@@ -309,72 +315,44 @@ int main(int argc, char **argv) {
     client_socket = accept(server_socket, (struct sockaddr *) &client_addr, &socket_size);
     
     if (client_socket == -1){
-      printf("SERVER: Error aceptando conexión")
+      printf("SERVER: Error aceptando conexión\n")
       return -1;
     }
 
-    // Delegación del procesado a un thread.
-    // TODO: Dirigir al thid adecuado de la pool de threads.
-    pthread_create(&thid, &attr, servicio, (void *) &client_socket);
+    // Thread que procesa la petición
+    if (pthread_create(&thid) != 0){
+      close(client_socket);
+      printf("SERVER: Error procesando la conexión con %i\n", client_socket);
+      continue;
+    }
+
+    //////////////// Sección Crítica //////////////
+    
+    // Copiado de la dirección del socket
     pthread_mutex_lock(&m);
-    while(no_lleno == false){// cambiar las variables a las correctas
+    while(ocupado == true){
       pthread_cond_wait(&m, &c);
-    } 
-    no_lleno = true;
+    }
+    ocupado = true;
     pthread_mutex_unlock(&m);
 
-
-
+    /////////// Fin de la Sección Crítica //////////
   }
-
-
-
-
-	// setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *) &val, sizeof(int)); mirar como se usa
-
-
-  // Bucle de ejecución del servidor
-	while (true) {
-    // Recepción de un request
-		sc = accept(sd, (struct sockaddr *)&client_addr,(socklen_t *)&size);
-		if (sc == -1){
-			perror("Error en la recepción de un request");
-			break;
-		}
-
-    // Esperar a que se desocupe un lugar en el buffer
-		pthread_mutex_lock(&mutex);
-		while (n_elementos == MAX_PETICIONES){
-      pthread_cond_wait(&no_lleno, &mutex);
-    }
-		read ( sc, (char *) &req, sizeof(char));
-		
-		buffer_peticiones[pos] = req;     // Recibe la request  en el buffer de peticiones
-		pos = (pos + 1) % MAX_PETICIONES; // Mueve el puntero de posición del buffer de peticiones al siguiente hueco libre
-		n_elementos++;
-		pthread_cond_signal(&no_vacio);   // Avisa al resto de threads parados por el cond_wait
-		pthread_mutex_unlock(&mutex);     // Libera el mutex global
-	}
 
   // Ejecución del servidor terminada
-	pthread_mutex_lock(&mfin);
-	fin = true;
-	pthread_mutex_unlock(&mfin);
+  pthread_mutex_lock(&mfin);
+  fin = true;
+  pthread_mutex_unlock(&mfin);
 
-	pthread_mutex_lock(&mutex);
-	pthread_cond_broadcast(&no_vacio);
-	pthread_mutex_unlock(&mutex);
-
-  // Recogida de threads
-	for (int i = 0; i < MAX_THREADS; i++){
-		pthread_join(thid[i], NULL);
-  }
+  pthread_mutex_lock(&mutex);
+  pthread_cond_broadcast(&no_vacio);
+  pthread_mutex_unlock(&mutex);
 
   // Limpieza
-	pthread_mutex_destroy(&mutex);
-	pthread_cond_destroy(&no_lleno);
-	pthread_cond_destroy(&no_vacio);
-	pthread_mutex_destroy(&mfin);
+  pthread_mutex_destroy(&mutex);
+  pthread_cond_destroy(&no_lleno);
+  pthread_cond_destroy(&no_vacio);
+  pthread_mutex_destroy(&mfin);
 
-	return 0;
+  return 0;
 }

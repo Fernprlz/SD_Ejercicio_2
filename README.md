@@ -13,3 +13,4 @@
 - [ ] La funcion exists es redundante.
 
 - [ ] Añadir comprobación para casos big endian y little endian.
+- [ ] Handle closing the connection

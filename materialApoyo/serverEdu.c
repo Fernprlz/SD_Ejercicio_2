@@ -152,14 +152,17 @@ int num_items(){
 //////////////// F U N C I O N - P A R A - T H R E A D S ///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-void servicio(void ){
+void servicio(int *socket_global){
+
+  int socket_local;
+  // request  local
+  request req;
+  // Resultado del servicio
+  int res;
 
 
-  ////////////////////////////
-  void tratar_peticion(void * s) {
-    int s_local;
     pthread_mutex_lock(&m);
-    s_local = (* (int *)s);
+    
     busy = FALSE;
     pthread_cond_signal(&c);
     pthread_mutex_unlock(&m);
@@ -169,16 +172,14 @@ void servicio(void ){
   ///////////////////////////
 
 
-  // request  local
-  request req;
   
-  // Resultado del servicio
-  int res;
+  
 
 	while(true){
     //////////////// Sección Crítica //////////////
 		pthread_mutex_lock(&mutex);
-
+    s_local = (* (int *) socket_global);
+    ocupado = false;
     // Esperar a recibir peticiones
 		while (n_elementos == 0) {
       // Evaluar estado de ejecución del servidor

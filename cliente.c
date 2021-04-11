@@ -10,7 +10,6 @@ int main(int argc, char **argv) {
 	///////////////////////////////////////////////////////////////////////////////
 	int socket_desc; //?
 
-	// TODO Modificar para
 	if (IP_TUPLAS == NULL){
 		printf("Error: IP del servidor no definida como variable de entorno.\n");
 		exit(0);

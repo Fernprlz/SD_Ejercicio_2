@@ -1,0 +1,72 @@
+Sockets:
+
+## Conexión
+
+### Servidor
+- socket()
+	Creación de un socket.
+		int socket (int dominio, int tipo, int protocolo)
+		- dominio		-	AF_UNIX, AF_INET	
+		- tipo			-	SOCK_STREAM, SOCK_DGRAM
+		- protocolo		-	0 en genera, specified at etc/protocols
+- bind()
+	Asignación de direcciones.
+	  Si no se asigna ninguno, se le asigna un puerto efimero en la primera
+	  utilización de un connect o sendto.
+		int bind (int sd, const struct sockaddr *addr, socklen_t addrlen)
+		- sd 			-	file descriptor del socket
+		- addr 			-	dirección a asignarle al socket
+							· Host: dirección local IP // INADDR_ANY elige cualquiera
+							· Puertos: 0 = el sistema elige uno.
+		- addrlen 		-	longitud de la structura sockaddr
+- listen()
+	Escuchar para conexiones entrantes.
+		int listen (int sd, int backlog)
+		- sd 			-	file descriptor del socket
+		- backlog		- 	número de peticiones máximas en cola.
+- accept()
+	Aceptra una conexión entrante.
+	  Bloquea el servidor hasta que se produce la conexión.
+	  Activa dos sockets: el original para recibir más; el nuevo asociado al cliente.
+	  	int accept (int sd, struct sockaddr *dir, socklen_t *len)
+	  	- sd 			-	file descriptor del socket
+	  	- dir 			-	dirección del socket del cliente
+	  	- len 			-	"parametro valor-resultado" Tamaño de 'dir', Cambia al hacer la llamada.
+	  	Devuelve el nuevo descriptor del socket asociado al cliente
+- I/O
+	Comunicación (see below)
+- close()
+	Cerrar un socket
+
+### Cliente
+
+## Comunicación
+
+### Stream - TCP
+- write()
+	Transfiere los datos escribiendolos en el stream que va hacia el socket asociado.
+	  Devuelve el número de bytes enviados o -1 en caso de error. 
+	  HAY QUE COMPROBAR SIEMPRE QUE EL MENSAJE HA SIDO ENVIADO POR COMPLETO.
+		ssize_t write(int sd, const char*mem, size_t long)
+		- sd 		- 	socket descriptor
+		- *mem		- 	cadena donde está el mensaje a enviar
+		- len 		- 	longitud del mensaje
+
+- read()
+	Lee los datos transferidos por el stream del socket asociado.
+	  Al igual que write, devuelve el número de bytes recibidos, -1 si falla.
+	  
+
+
+### Datagram - UDP
+****
+
+###########################################################################################
+
+# Utilidades
+
+- Obtener la dirección de un socket a partid del descriptor
+	int getsockname (int sd, struct sockaddr *dir, socklen_t *len)
+	- sd 	-	descriptor devuelto por socket
+	- dir 	- 	buffer donde guardar la dirección del socket remoto
+	- len 	-	"parametro valor-resultado" ??
